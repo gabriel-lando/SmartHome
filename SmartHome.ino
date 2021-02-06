@@ -1,5 +1,6 @@
 #include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
 #include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
+#include <ArduinoOTA.h>
 
 /*  Besides the libraries already included with the Arduino Core for ESP8266 or ESP32, these libraries are also required to use fauxmoESP:
     => ESP8266:  This library uses ESPAsyncTCP library by me-no-dev  -> https://github.com/me-no-dev/ESPAsyncTCP
@@ -9,7 +10,7 @@
 */
 
 #include "NVMe.h"
-#include "Settings.h" // Change Settings file
+#include "Settings.X.h" // Choose Settings file
 
 fauxmoESP fauxmo;
 NVME nvme;
@@ -21,7 +22,8 @@ void setup() {
 
     SetPins();
     LoadCurrentState();
-    WifiSetup();
+    SetupWiFi();
+    SetupOTA();
 
     fauxmoSetup();
 
@@ -36,6 +38,7 @@ void loop() {
     // fauxmoESP uses an async TCP server but a sync UDP server
     // Therefore, we have to manually poll for UDP packets
     fauxmo.handle();
+    ArduinoOTA.handle();
 
     // This is a sample code to output free heap every 5 seconds
     // This is a cheap way to detect memory leaks
@@ -75,7 +78,7 @@ void SetPins() {
     }
 }
 
-void WifiSetup() {
+void SetupWiFi() {
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
     WiFiManager wm;
 
@@ -92,6 +95,43 @@ void WifiSetup() {
     if (!res) {
         ESP.restart();
     }
+}
+
+void SetupOTA() {
+    ArduinoOTA.setPasswordHash("8d2a859ad6c0f1027ec838626c71da70");
+
+    ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH) {
+            type = "sketch";
+        } else { // U_FS
+            type = "filesystem";
+        }
+
+        // NOTE: if updating FS this would be the place to unmount FS using FS.end()
+        Serial.println("Start updating " + type);
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("\nEnd");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) {
+            Serial.println("Auth Failed");
+        } else if (error == OTA_BEGIN_ERROR) {
+            Serial.println("Begin Failed");
+        } else if (error == OTA_CONNECT_ERROR) {
+            Serial.println("Connect Failed");
+        } else if (error == OTA_RECEIVE_ERROR) {
+            Serial.println("Receive Failed");
+        } else if (error == OTA_END_ERROR) {
+            Serial.println("End Failed");
+        }
+    });
+    ArduinoOTA.begin();
 }
 
 void fauxmoSetup() {
