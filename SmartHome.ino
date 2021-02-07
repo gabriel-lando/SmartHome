@@ -12,6 +12,8 @@
 #include "NVMe.h"
 #include "Settings.0.h" // Choose Settings file
 
+#define OTA_MD5_PASSWORD "8d2a859ad6c0f1027ec838626c71da70" // Generate a new MD5 hash password on: http://www.md5.cz/
+
 fauxmoESP fauxmo;
 NVME nvme;
 byte currentState, lastState, manualChanges = 0;
@@ -98,7 +100,7 @@ void SetupWiFi() {
 }
 
 void SetupOTA() {
-    ArduinoOTA.setPasswordHash("8d2a859ad6c0f1027ec838626c71da70");
+    ArduinoOTA.setPasswordHash(OTA_MD5_PASSWORD);
     ArduinoOTA.begin();
 }
 
