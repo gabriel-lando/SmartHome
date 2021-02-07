@@ -10,7 +10,7 @@
 */
 
 #include "NVMe.h"
-#include "Settings.4.h" // Choose Settings file
+#include "Settings.0.h" // Choose Settings file
 
 fauxmoESP fauxmo;
 NVME nvme;

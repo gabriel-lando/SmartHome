@@ -6,7 +6,7 @@
 
 char DEVICES[][25] = { "Living Room Light", "Dinner Room Light" };
 int LIGHT_PINS[] = { 4, 0 };
-int SWITCH_PINS[] = { 13, 14 };
+int SWITCH_PINS[] = { 14, 13 };
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
