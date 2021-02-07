@@ -1,11 +1,30 @@
+// MAC Address: 68:C6:3A:D6:CE:A2
+
 #pragma once
 #define DEBUG_ENABLED false
 #define NUM_DEVICES 2
 
 char DEVICES[][25] = { "Living Room Light", "Dinner Room Light" };
-int LIGHT_PINS[] = { D2, D3 };
-int SWITCH_PINS[] = { D7, D5 };
+int LIGHT_PINS[] = { 4, 0 };
+int SWITCH_PINS[] = { 13, 14 };
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
+ * 
+ * 
+ * Label  GPIO      Input           Output                  Notes
+ * --------------------------------------------------------------------------------
+ * D0     GPIO16    no interrupt    no PWM or I2C support   HIGH at boot - used to wake up from deep sleep
+ * D1     GPIO5     OK              OK                      often used as SCL (I2C)
+ * D2     GPIO4     OK              OK                      often used as SDA (I2C)
+ * D3     GPIO0     pulled up       OK                      connected to FLASH button, boot fails if pulled LOW
+ * D4     GPIO2     pulled up       OK                      HIGH at boot - connected to on-board LED, boot fails if pulled LOW
+ * D5     GPIO14    OK              OK                      SPI (SCLK)
+ * D6     GPIO12    OK              OK                      SPI (MISO)
+ * D7     GPIO13    OK              OK                      SPI (MOSI)
+ * D8     GPIO15    pulled to GND   *OK*                    SPI (CS) Boot fails if pulled HIGH
+ * RX     GPIO3     *OK*            RX pin (X)              HIGH at boot
+ * TX     GPIO1     TX pin (X)      *OK*                    HIGH at boot - debug output at boot, boot fails if pulled LOW
+ * A0     ADC0      Analog Input    (X)
+ * 
  */

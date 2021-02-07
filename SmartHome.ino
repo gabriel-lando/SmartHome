@@ -10,11 +10,11 @@
 */
 
 #include "NVMe.h"
-#include "Settings.X.h" // Choose Settings file
+#include "Settings.4.h" // Choose Settings file
 
 fauxmoESP fauxmo;
 NVME nvme;
-byte currentState, lastState;
+byte currentState, lastState, manualChanges = 0;
 
 void setup() {
     if (DEBUG_ENABLED)
@@ -53,9 +53,9 @@ void loop() {
         }
     }
 
-    // Read GPIO every 200ms
+    // Read GPIO every 150ms but change lights every 2 reads (for debouncing)
     static unsigned long lastRead = millis();
-    if (millis() - lastRead > 200) {
+    if (millis() - lastRead > 150) {
         lastRead = millis();
         ProcessChanges();
     }
@@ -99,38 +99,6 @@ void SetupWiFi() {
 
 void SetupOTA() {
     ArduinoOTA.setPasswordHash("8d2a859ad6c0f1027ec838626c71da70");
-
-    ArduinoOTA.onStart([]() {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH) {
-            type = "sketch";
-        } else { // U_FS
-            type = "filesystem";
-        }
-
-        // NOTE: if updating FS this would be the place to unmount FS using FS.end()
-        Serial.println("Start updating " + type);
-    });
-    ArduinoOTA.onEnd([]() {
-        Serial.println("\nEnd");
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
-        Serial.printf("Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR) {
-            Serial.println("Auth Failed");
-        } else if (error == OTA_BEGIN_ERROR) {
-            Serial.println("Begin Failed");
-        } else if (error == OTA_CONNECT_ERROR) {
-            Serial.println("Connect Failed");
-        } else if (error == OTA_RECEIVE_ERROR) {
-            Serial.println("Receive Failed");
-        } else if (error == OTA_END_ERROR) {
-            Serial.println("End Failed");
-        }
-    });
     ArduinoOTA.begin();
 }
 
@@ -172,8 +140,9 @@ void fauxmoSetup() {
         }
     });
 
+    // Update Alexa status to current status
     for (int i = 0; i < NUM_DEVICES; i++)
-        fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 255);
+        fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
 }
 
 /******************************************************/
@@ -199,7 +168,7 @@ void ProcessChanges() {
         if (changes != 0) {
             for (int i = 0; i < NUM_DEVICES; i++) {
                 digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
-                fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 255);
+                fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
             }
         }
         lastState = currentState;
@@ -208,6 +177,10 @@ void ProcessChanges() {
 
 byte ReadSwitchState() {
     static byte lastRead = 0xFF;
+    static byte beforeLast = lastRead;
+    static byte lastChange = 0;
+
+    // Read current switch positions
     byte currentRead = 0;
     for (int i = 0; i < NUM_DEVICES; i++) {
         if (digitalRead(SWITCH_PINS[i]))
@@ -216,12 +189,25 @@ byte ReadSwitchState() {
             currentRead &= ~(0x1 << i);
     }
 
+    // Compare corrent read with last read to check if there is any change
     byte changes = 0;
     if (lastRead != 0xFF && lastRead != currentRead) {
         for (int i = 0; i < NUM_DEVICES; i++) {
-            if ((currentRead >> i) & 0x1 != (lastRead >> i) & 0x1)
+            if (((currentRead >> i) & 0x1) != ((lastRead >> i) & 0x1))
                 changes |= 0x1 << i;
         }
+    }
+
+    // Debouncing: Compare if current read is equal to last, but different to a previous one.
+    // If different, it means that the switch remains on its position, so the switch changed
+    // and the current position is the final position
+    if (lastRead == currentRead && lastRead != beforeLast) {
+        beforeLast = lastRead;
+        changes = lastChange;
+    }
+    else {
+        lastChange = changes;
+        changes = 0;
     }
 
     lastRead = currentRead;

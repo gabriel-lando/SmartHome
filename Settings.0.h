@@ -1,12 +1,12 @@
-// MAC Address: 68:C6:3A:D6:CD:F0
+// Test Settings
 
 #pragma once
-#define DEBUG_ENABLED false
-#define NUM_DEVICES 1
+#define DEBUG_ENABLED true
+#define NUM_DEVICES 3
 
-char DEVICES[][25] = { "Garden Light" };
-int LIGHT_PINS[] = { 0 };
-int SWITCH_PINS[] = { 13 };
+char DEVICES[][25] = { "Yellow Light", "Red Light", "Blue Light" };
+int LIGHT_PINS[] = { 5, 4, 0 };
+int SWITCH_PINS[] = { 14, 12, 13 };
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
