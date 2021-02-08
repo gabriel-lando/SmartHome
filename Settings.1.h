@@ -8,6 +8,9 @@ char DEVICES[][25] = { "Bedroom Light", "TV Light Left", "TV Light Right" };
 int LIGHT_PINS[] = { 5, 4, 0 };
 int SWITCH_PINS[] = { 14, 12, 13 };
 
+bool USE_DIMMER[] = { false, false, false };
+int ZC_DIMMER_PINS[] = { 0, 0, 0 };
+
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
  * 

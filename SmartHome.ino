@@ -14,13 +14,17 @@
 
 #define OTA_MD5_PASSWORD "8d2a859ad6c0f1027ec838626c71da70" // Generate a new MD5 hash password on: http://www.md5.cz/
 
+#define MAX_DIMMER 254
 fauxmoESP fauxmo;
 NVME nvme;
-byte currentState, lastState, manualChanges = 0;
+byte currentState, lastState;
+byte dimmerStatus[NUM_DEVICES] = { 0 };
 
 void setup() {
-    if (DEBUG_ENABLED)
+    if (DEBUG_ENABLED) {
         Serial.begin(115200);
+        delay(250);
+    }
 
     SetPins();
     LoadCurrentState();
@@ -28,12 +32,6 @@ void setup() {
     SetupOTA();
 
     fauxmoSetup();
-
-    if (DEBUG_ENABLED) {
-        Serial.println("\nCurrent lights state: ");
-        for (int i = 0; i < NUM_DEVICES; i++)
-            Serial.println((String)DEVICES[i] + ": " + ((currentState >> i) & 0x1));
-    }
 }
 
 void loop() {
@@ -52,6 +50,7 @@ void loop() {
             if (DEBUG_ENABLED)
                 Serial.println("[WiFi] Connection lost. Restarting...");
             ESP.restart();
+            delay(1000);
         }
     }
 
@@ -71,18 +70,26 @@ void LoadCurrentState() {
     lastState = currentState = nvme.GetState();
     for (int i = 0; i < NUM_DEVICES; i++)
         digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
+
+    if (DEBUG_ENABLED) {
+        Serial.println("\nCurrent lights state: ");
+        for (int i = 0; i < NUM_DEVICES; i++)
+            Serial.println((String)DEVICES[i] + ": " + ((currentState >> i) & 0x1));
+    }
 }
 
 void SetPins() {
     for (int i = 0; i < NUM_DEVICES; i++) {
         pinMode(LIGHT_PINS[i], OUTPUT);
         pinMode(SWITCH_PINS[i], INPUT_PULLUP);
+        dimmerStatus[i] = MAX_DIMMER;
     }
+    analogWriteRange(MAX_DIMMER);
 }
 
 void SetupWiFi() {
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
-    WiFiManager wm;
+    WiFiManager wifiManager;
 
     // Setting AP SSID and Password
     String AP_MAC = WiFi.macAddress();
@@ -92,10 +99,12 @@ void SetupWiFi() {
     char C_AP_PWD[] = "12345678";
 
     bool res;
-    res = wm.autoConnect(C_AP_SSID, C_AP_PWD); // password protected ap
+    wifiManager.setTimeout(180); // Set AP timeout to 180 seconds = 3 minutes
+    res = wifiManager.autoConnect(C_AP_SSID, C_AP_PWD); // password protected ap
 
     if (!res) {
         ESP.restart();
+        delay(5000);
     }
 }
 
@@ -131,13 +140,25 @@ void fauxmoSetup() {
         // Checking for device_id is simpler if you are certain about the order they are loaded and it does not change.
         // Otherwise comparing the device_name is safer.
 
+        if (DEBUG_ENABLED)
+            Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+
         for (int i = 0; i < NUM_DEVICES; i++) {
             if (strcmp(device_name, DEVICES[i]) == 0) {
-                digitalWrite(LIGHT_PINS[i], state);
-                if (state)
+                if (state) {
                     currentState |= 0x1 << i;
-                else
+                    if (USE_DIMMER[i]) {
+                        dimmerStatus[i] = value;
+                        analogWrite(LIGHT_PINS[i], value);
+                    }
+                    else {
+                        digitalWrite(LIGHT_PINS[i], HIGH);
+                    }
+                }
+                else {
                     currentState &= ~(0x1 << i);
+                    digitalWrite(LIGHT_PINS[i], LOW);
+                }
             }
         }
     });
@@ -169,8 +190,15 @@ void ProcessChanges() {
 
         if (changes != 0) {
             for (int i = 0; i < NUM_DEVICES; i++) {
-                digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
-                fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
+                if (USE_DIMMER[i]) {
+                    bool state = (currentState >> i) & 0x1;
+                    analogWrite(LIGHT_PINS[i], (state) ? dimmerStatus[i] : 0);
+                    fauxmo.setState(DEVICES[i], state, dimmerStatus[i]);
+                }
+                else {
+                    digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
+                    fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
+                }
             }
         }
         lastState = currentState;

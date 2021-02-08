@@ -8,6 +8,9 @@ char DEVICES[][25] = { "Garden Light" };
 int LIGHT_PINS[] = { 0 };
 int SWITCH_PINS[] = { 13 };
 
+bool USE_DIMMER[] = { false };
+int ZC_DIMMER_PINS[] = { 0 };
+
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
  * 

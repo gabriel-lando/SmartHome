@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EEPROM.h>
+#include <Arduino.h>
 
 class NVME {
     private:
@@ -20,9 +21,8 @@ class NVME {
 
         void ClearEEPROM() {
             Serial.println("[NVMe] Cleaning EEPROM.");
-            for (int i = CURR_STATE_INIT; i <= CURR_STATE_END; i++) {
+            for (int i = CURR_STATE_INIT; i <= CURR_STATE_END; i++)
                 UpdateEEPROM(i, 0);
-            }
             EEPROM.commit();
         }
 
@@ -43,29 +43,33 @@ NVME::NVME() {
 }
 
 byte NVME::GetState() {
-    if (this->addr_curr)
+    if (this->addr_curr != -1)
         return this->current_state;
 
     int count = 0;
+    this->current_state = 0;
 
     for (int i = CURR_STATE_INIT; i <= CURR_STATE_END; i++) {
-        this->current_state = EEPROM.read(i);
-        if (this->current_state) {
+        byte state = EEPROM.read(i);
+        if (state) {
+            this->current_state = state;
             this->addr_curr = i;
-            count++;
+            if (count++ > 1) break;
         }
     }
 
     if (count > 1) {
         ClearEEPROM();
         this->current_state = 0;
-        addr_curr = -1;
+        this->addr_curr = -1;
     }
 
     return this->current_state;
 }
 
 void NVME::SetState(byte state) {
+    Serial.println((String)"[NVMe] Current state: " + this->current_state + ". Addr: " + this->addr_curr);
+    
     if (state == this->current_state)
         return;
 
@@ -80,5 +84,8 @@ void NVME::SetState(byte state) {
     EEPROM.commit();
 
     this->current_state = state;
+
+    Serial.println((String)"[NVMe] Updated state to: " + state + ". Addr: " + this->addr_curr);
+
     return;
 }
