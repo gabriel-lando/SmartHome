@@ -2,9 +2,8 @@
 #include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
 #include <ArduinoOTA.h>
 
-/*  Besides the libraries already included with the Arduino Core for ESP8266 or ESP32, these libraries are also required to use fauxmoESP:
+/*  Besides the libraries already included with the Arduino Core for ESP8266, these libraries are also required to use fauxmoESP:
     => ESP8266:  This library uses ESPAsyncTCP library by me-no-dev  -> https://github.com/me-no-dev/ESPAsyncTCP
-    => ESP32:    This library uses AsyncTCP library by me-no-dev     -> https://github.com/me-no-dev/AsyncTCP
 
     IMPORTANT: For ESP8266, before upload sketch, set LwIP to "v1.4 Higher Bandwidth" in Tools > LwIP Variant > "v1.4 Higher Bandwidth".
 */
@@ -17,7 +16,6 @@
 
 fauxmoESP fauxmo;
 NVME nvme;
-Dimmer dimmer(NUM_DEVICES, USE_DIMMER, ZC_DIMMER_PINS, LIGHT_PINS);
 byte currentState, lastState;
 
 void setup() {
@@ -72,7 +70,7 @@ void LoadCurrentState() {
         bool currState = (currentState >> i) & 0x1;
 
         if (USE_DIMMER[i])
-            dimmer.SetState(i, currState);
+            Dimmer_SetState(i, currState);
         else
             digitalWrite(LIGHT_PINS[i], currState);
     }
@@ -85,14 +83,21 @@ void LoadCurrentState() {
 }
 
 void SetPins() {
+    bool setDimmer = false;
+
     for (int i = 0; i < NUM_DEVICES; i++) {
         pinMode(SWITCH_PINS[i], INPUT_PULLUP);
 
         if (!USE_DIMMER[i])
             pinMode(LIGHT_PINS[i], OUTPUT);
+        else
+            setDimmer = true;
     }
 
-    dimmer.Initialize();
+    if (setDimmer) {
+        SetDimmer(NUM_DEVICES, USE_DIMMER, ZC_DIMMER_PINS, LIGHT_PINS);
+        Dimmer_Initialize();
+    }
 }
 
 void SetupWiFi() {
@@ -156,7 +161,7 @@ void fauxmoSetup() {
                 if (state) {
                     currentState |= 0x1 << i;
                     if (USE_DIMMER[i])
-                        dimmer.SetBrightness(i, value);
+                        Dimmer_SetBrightness(i, value);
                     else
                         digitalWrite(LIGHT_PINS[i], HIGH);
                 }
@@ -164,7 +169,7 @@ void fauxmoSetup() {
                     currentState &= ~(0x1 << i);
 
                     if (USE_DIMMER[i])
-                        dimmer.TurnOff(i);
+                        Dimmer_TurnOff(i);
                     else
                         digitalWrite(LIGHT_PINS[i], LOW);
                 }
@@ -201,8 +206,8 @@ void ProcessChanges() {
             for (int i = 0; i < NUM_DEVICES; i++) {
                 bool state = (currentState >> i) & 0x1;
                 if (USE_DIMMER[i]) {
-                    dimmer.SetState(i, state);
-                    fauxmo.setState(DEVICES[i], state, dimmer.GetBrightness(i));
+                    Dimmer_SetState(i, state);
+                    fauxmo.setState(DEVICES[i], state, Dimmer_GetBrightness(i));
                 }
                 else {
                     digitalWrite(LIGHT_PINS[i], state);
