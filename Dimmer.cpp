@@ -10,8 +10,8 @@ volatile int* currentDimmerValue = nullptr;
 int* lastDimmerValue = nullptr;
 
 int* currentBrightness = nullptr;
-int* pinsZC = nullptr;
-int* pinsDim;
+int* pinsDim = nullptr;
+int pinZC = 0;
 
 int qtyDevices = 0;
 bool* useDimmer = nullptr;
@@ -19,15 +19,14 @@ bool* useDimmer = nullptr;
 void ICACHE_RAM_ATTR HandleZeroCross();
 void ICACHE_RAM_ATTR OnTimerISR();
 
-void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsZC, const int* _pinsDim) {
+void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsDim, const int _pinZC) {
     qtyDevices = qty;
+    pinZC = _pinZC;
 
     useDimmer = (bool*)malloc(qty * sizeof(bool));
-    pinsZC = (int*)malloc(qty * sizeof(int));
     pinsDim = (int*)malloc(qty * sizeof(int));
 
     std::copy(_useDimmer, _useDimmer + qty, useDimmer);
-    std::copy(_pinsZC, _pinsZC + qty, pinsZC);
     std::copy(_pinsDim, _pinsDim + qty, pinsDim);
 
     currentBrightness = (int*)malloc(qty * sizeof(int));
@@ -40,14 +39,12 @@ void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsZC, const int* _
 
 void Dimmer_Initialize() {
     bool setISRs = false;
-    int zc_pin = 0;
 
     for (int i = 0; i < qtyDevices; i++) {
         if (!useDimmer[i])
             continue;
 
         setISRs = true;
-        zc_pin = pinsZC[i];
 
         currentBrightness[i] = MIN_BRIGHTNESS;
         currentDimmerValue[i] = MAX_DIMMER;
@@ -62,7 +59,7 @@ void Dimmer_Initialize() {
     if (setISRs) {
         ITimer = new ESP8266Timer();
         ITimer->attachInterruptInterval(FREQ_STEP_MS, OnTimerISR);
-        attachInterrupt(digitalPinToInterrupt(zc_pin), HandleZeroCross, RISING);
+        attachInterrupt(digitalPinToInterrupt(pinZC), HandleZeroCross, RISING);
     }
 }
 

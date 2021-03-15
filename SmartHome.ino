@@ -1,12 +1,24 @@
+/*************************************************************************************************************************************************
+  SmartHome.ino
+  For ESP8266 boards
+  Written by Gabriel Lando
+  Licensed under MIT license
+**************************************************************************************************************************************************/
+
+#if !defined(ESP8266)
+  #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
+#endif
+
 #include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
 #include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
 #include <ArduinoOTA.h>
 
-/*  Besides the libraries already included with the Arduino Core for ESP8266, these libraries are also required to use fauxmoESP:
-    => ESP8266:  This library uses ESPAsyncTCP library by me-no-dev  -> https://github.com/me-no-dev/ESPAsyncTCP
+/*************************************************************************************************************************************************
+   Besides the libraries already included with the Arduino Core for ESP8266, these libraries are also required to use fauxmoESP:
+    => ESPAsyncTCP: https://github.com/me-no-dev/ESPAsyncTCP
 
     IMPORTANT: For ESP8266, before upload sketch, set LwIP to "v1.4 Higher Bandwidth" in Tools > LwIP Variant > "v1.4 Higher Bandwidth".
-*/
+**************************************************************************************************************************************************/
 
 #include "NVMe.h"
 #include "Dimmer.h"
@@ -95,7 +107,7 @@ void SetPins() {
     }
 
     if (setDimmer) {
-        SetDimmer(NUM_DEVICES, USE_DIMMER, ZC_DIMMER_PINS, LIGHT_PINS);
+        SetDimmer(NUM_DEVICES, USE_DIMMER, LIGHT_PINS, ZC_DIMMER_PIN);
         Dimmer_Initialize();
     }
 }

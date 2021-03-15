@@ -10,7 +10,7 @@
 #define MIN_DIMMER 483         // Dimmer value tr Turn Off the Light
 #define MAX_DIMMER 0           // Dimmer value tr Turn On the Light
 
-void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsZC, const int* _pinsDim);
+void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsDim, const int _pinZC);
 void Dimmer_Initialize();
 void Dimmer_SetBrightness(int id, int value);
 int Dimmer_GetBrightness(int id);

@@ -9,7 +9,7 @@ const int LIGHT_PINS[] = { 0 };
 const int SWITCH_PINS[] = { 13 };
 
 const bool USE_DIMMER[] = { false };
-const int ZC_DIMMER_PINS[] = { 0 };
+const int ZC_DIMMER_PIN = 0;
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
