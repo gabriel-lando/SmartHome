@@ -7,7 +7,7 @@
 #define MIN_BRIGHTNESS 0       // Min value for brigtness (received from FauxmoESP)
 #define MAX_BRIGHTNESS 254     // Max value for brigtness (received from FauxmoESP)
 
-#define MIN_DIMMER 483         // Dimmer value tr Turn Off the Light
+#define MIN_DIMMER 448         // Dimmer value tr Turn Off the Light
 #define MAX_DIMMER 0           // Dimmer value tr Turn On the Light
 
 void SetDimmer(int qty, const bool* _useDimmer, const int* _pinsDim, const int _pinZC);
