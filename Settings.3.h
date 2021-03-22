@@ -4,12 +4,12 @@
 #define DEBUG_ENABLED false
 #define NUM_DEVICES 1
 
-char DEVICES[][25] = { "Garden Light" };
-int LIGHT_PINS[] = { 0 };
-int SWITCH_PINS[] = { 13 };
+const char DEVICES[][25] = { "Garden Light" };
+const int LIGHT_PINS[] = { 0 };
+const int SWITCH_PINS[] = { 13 };
 
-bool USE_DIMMER[] = { false };
-int ZC_DIMMER_PINS[] = { 0 };
+const bool USE_DIMMER[] = { false };
+const int ZC_DIMMER_PIN = 0;
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/

@@ -1,24 +1,34 @@
+/*************************************************************************************************************************************************
+  SmartHome.ino
+  For ESP8266 boards
+  Written by Gabriel Lando
+  Licensed under MIT license
+**************************************************************************************************************************************************/
+
+#if !defined(ESP8266)
+  #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
+#endif
+
 #include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
 #include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
 #include <ArduinoOTA.h>
 
-/*  Besides the libraries already included with the Arduino Core for ESP8266 or ESP32, these libraries are also required to use fauxmoESP:
-    => ESP8266:  This library uses ESPAsyncTCP library by me-no-dev  -> https://github.com/me-no-dev/ESPAsyncTCP
-    => ESP32:    This library uses AsyncTCP library by me-no-dev     -> https://github.com/me-no-dev/AsyncTCP
+/*************************************************************************************************************************************************
+   Besides the libraries already included with the Arduino Core for ESP8266, these libraries are also required to use fauxmoESP:
+    => ESPAsyncTCP: https://github.com/me-no-dev/ESPAsyncTCP
 
     IMPORTANT: For ESP8266, before upload sketch, set LwIP to "v1.4 Higher Bandwidth" in Tools > LwIP Variant > "v1.4 Higher Bandwidth".
-*/
+**************************************************************************************************************************************************/
 
 #include "NVMe.h"
+#include "Dimmer.h"
 #include "Settings.0.h" // Choose Settings file
 
 #define OTA_MD5_PASSWORD "8d2a859ad6c0f1027ec838626c71da70" // Generate a new MD5 hash password on: http://www.md5.cz/
 
-#define MAX_DIMMER 254
 fauxmoESP fauxmo;
 NVME nvme;
 byte currentState, lastState;
-byte dimmerStatus[NUM_DEVICES] = { 0 };
 
 void setup() {
     if (DEBUG_ENABLED) {
@@ -68,8 +78,14 @@ void loop() {
 
 void LoadCurrentState() {
     lastState = currentState = nvme.GetState();
-    for (int i = 0; i < NUM_DEVICES; i++)
-        digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
+    for (int i = 0; i < NUM_DEVICES; i++) {
+        bool currState = (currentState >> i) & 0x1;
+
+        if (USE_DIMMER[i])
+            Dimmer_SetState(i, currState);
+        else
+            digitalWrite(LIGHT_PINS[i], currState);
+    }
 
     if (DEBUG_ENABLED) {
         Serial.println("\nCurrent lights state: ");
@@ -79,12 +95,21 @@ void LoadCurrentState() {
 }
 
 void SetPins() {
+    bool setDimmer = false;
+
     for (int i = 0; i < NUM_DEVICES; i++) {
-        pinMode(LIGHT_PINS[i], OUTPUT);
         pinMode(SWITCH_PINS[i], INPUT_PULLUP);
-        dimmerStatus[i] = MAX_DIMMER;
+
+        if (!USE_DIMMER[i])
+            pinMode(LIGHT_PINS[i], OUTPUT);
+        else
+            setDimmer = true;
     }
-    analogWriteRange(MAX_DIMMER);
+
+    if (setDimmer) {
+        SetDimmer(NUM_DEVICES, USE_DIMMER, LIGHT_PINS, ZC_DIMMER_PIN);
+        Dimmer_Initialize();
+    }
 }
 
 void SetupWiFi() {
@@ -147,17 +172,18 @@ void fauxmoSetup() {
             if (strcmp(device_name, DEVICES[i]) == 0) {
                 if (state) {
                     currentState |= 0x1 << i;
-                    if (USE_DIMMER[i]) {
-                        dimmerStatus[i] = value;
-                        analogWrite(LIGHT_PINS[i], value);
-                    }
-                    else {
+                    if (USE_DIMMER[i])
+                        Dimmer_SetBrightness(i, value);
+                    else
                         digitalWrite(LIGHT_PINS[i], HIGH);
-                    }
                 }
                 else {
                     currentState &= ~(0x1 << i);
-                    digitalWrite(LIGHT_PINS[i], LOW);
+
+                    if (USE_DIMMER[i])
+                        Dimmer_TurnOff(i);
+                    else
+                        digitalWrite(LIGHT_PINS[i], LOW);
                 }
             }
         }
@@ -190,14 +216,14 @@ void ProcessChanges() {
 
         if (changes != 0) {
             for (int i = 0; i < NUM_DEVICES; i++) {
+                bool state = (currentState >> i) & 0x1;
                 if (USE_DIMMER[i]) {
-                    bool state = (currentState >> i) & 0x1;
-                    analogWrite(LIGHT_PINS[i], (state) ? dimmerStatus[i] : 0);
-                    fauxmo.setState(DEVICES[i], state, dimmerStatus[i]);
+                    Dimmer_SetState(i, state);
+                    fauxmo.setState(DEVICES[i], state, Dimmer_GetBrightness(i));
                 }
                 else {
-                    digitalWrite(LIGHT_PINS[i], (currentState >> i) & 0x1);
-                    fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
+                    digitalWrite(LIGHT_PINS[i], state);
+                    fauxmo.setState(DEVICES[i], state, 254);
                 }
             }
         }
