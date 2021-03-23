@@ -10,7 +10,6 @@
 #endif
 
 #include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
-#include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
 #include <ArduinoOTA.h>
 
 /*************************************************************************************************************************************************
@@ -20,15 +19,17 @@
     IMPORTANT: For ESP8266, before upload sketch, set LwIP to "v1.4 Higher Bandwidth" in Tools > LwIP Variant > "v1.4 Higher Bandwidth".
 **************************************************************************************************************************************************/
 
-#include "NVMe.h"
-#include "Dimmer.h"
-#include "Settings.0.h" // Choose Settings file
+#include "Settings.h"
+#include "src/Lights.h"
+#include "src/Switches.h"
+#include "src/Alexa.h"
+#include "src/NVMe.h"
 
-#define OTA_MD5_PASSWORD "8d2a859ad6c0f1027ec838626c71da70" // Generate a new MD5 hash password on: http://www.md5.cz/
-
-fauxmoESP fauxmo;
+Lights lights;
+Switches switches;
+Alexa alexa;
 NVME nvme;
-byte currentState, lastState;
+volatile byte lastState;
 
 void setup() {
     if (DEBUG_ENABLED) {
@@ -36,25 +37,41 @@ void setup() {
         delay(250);
     }
 
-    SetPins();
     LoadCurrentState();
     SetupWiFi();
     SetupOTA();
 
-    fauxmoSetup();
+    alexa.Initialize(lastState, AlexaStatusChanged);
 }
 
 void loop() {
     // fauxmoESP uses an async TCP server but a sync UDP server
     // Therefore, we have to manually poll for UDP packets
-    fauxmo.handle();
+    alexa.Loop();
     ArduinoOTA.handle();
+
+    byte switchStatus = switches.GetState();
+    if (switchStatus) {
+        byte currState = ProcessChanges(switchStatus);
+        if (currState != lastState) {
+            lastState = currState;
+            
+            nvme.SetState(lastState);
+            lights.SetState(lastState);
+            
+            for (byte i = 0; i < NUM_DEVICES; i++) {
+                if (DEBUG_ENABLED)
+                    Serial.println((String)"[MAIN] Switch changed: " + i + " to " + ((lastState >> i) & 0x1) + " with " + lights.GetBrightness(i));
+                alexa.SetState(i, ((lastState >> i) & 0x1), lights.GetBrightness(i));
+            }
+        }
+    }
 
     // This is a sample code to output free heap every 5 seconds
     // This is a cheap way to detect memory leaks
-    static unsigned long lastHeap = millis();
-    if (millis() - lastHeap > 5000) {
-        lastHeap = millis();
+    static unsigned long lastMillis = millis();
+    if (millis() - lastMillis > 5000) {
+        lastMillis = millis();
         ESP.getFreeHeap();
         if (!WiFi.isConnected() && !WiFi.reconnect()) {
             if (DEBUG_ENABLED)
@@ -63,52 +80,20 @@ void loop() {
             delay(1000);
         }
     }
-
-    // Read GPIO every 150ms but change lights every 2 reads (for debouncing)
-    static unsigned long lastRead = millis();
-    if (millis() - lastRead > 150) {
-        lastRead = millis();
-        ProcessChanges();
-    }
 }
 
 /******************************************************/
-/***************** Setup Functions ********************/
+/****************** Setup Functions *******************/
 /******************************************************/
 
 void LoadCurrentState() {
-    lastState = currentState = nvme.GetState();
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        bool currState = (currentState >> i) & 0x1;
-
-        if (USE_DIMMER[i])
-            Dimmer_SetState(i, currState);
-        else
-            digitalWrite(LIGHT_PINS[i], currState);
-    }
+    lastState = nvme.GetState();
+    lights.SetState(lastState);
 
     if (DEBUG_ENABLED) {
-        Serial.println("\nCurrent lights state: ");
+        Serial.println("\n[MAIN] Current lights state: ");
         for (int i = 0; i < NUM_DEVICES; i++)
-            Serial.println((String)DEVICES[i] + ": " + ((currentState >> i) & 0x1));
-    }
-}
-
-void SetPins() {
-    bool setDimmer = false;
-
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        pinMode(SWITCH_PINS[i], INPUT_PULLUP);
-
-        if (!USE_DIMMER[i])
-            pinMode(LIGHT_PINS[i], OUTPUT);
-        else
-            setDimmer = true;
-    }
-
-    if (setDimmer) {
-        SetDimmer(NUM_DEVICES, USE_DIMMER, LIGHT_PINS, ZC_DIMMER_PIN);
-        Dimmer_Initialize();
+            Serial.println((String)"\t" + DEVICES[i] + ": " + ((lastState >> i) & 0x1));
     }
 }
 
@@ -138,134 +123,33 @@ void SetupOTA() {
     ArduinoOTA.begin();
 }
 
-void fauxmoSetup() {
-    // By default, fauxmoESP creates it's own webserver on the defined port
-    // The TCP port must be 80 for gen3 devices (default is 1901)
-    // This has to be done before the call to enable()
-    fauxmo.createServer(true); // not needed, this is the default value
-    fauxmo.setPort(80); // This is required for gen3 devices
-
-    // You have to call enable(true) once you have a WiFi connection
-    // You can enable or disable the library at any moment
-    // Disabling it will prevent the devices from being discovered and switched
-    fauxmo.enable(true);
-
-    // Add virtual devices
-    for (int i = 0; i < NUM_DEVICES; i++)
-        fauxmo.addDevice(DEVICES[i]);
-
-    fauxmo.onSetState([](unsigned char device_id, const char * device_name, bool state, unsigned char value) {
-
-        // Callback when a command from Alexa is received.
-        // You can use device_id or device_name to choose the element to perform an action onto (relay, LED,...)
-        // State is a boolean (ON/OFF) and value a number from 0 to 255 (if you say "set kitchen light to 50%" you will receive a 128 here).
-        // Just remember not to delay too much here, this is a callback, exit as soon as possible.
-        // If you have to do something more involved here set a flag and process it in your main loop.
-
-        // Checking for device_id is simpler if you are certain about the order they are loaded and it does not change.
-        // Otherwise comparing the device_name is safer.
-
-        if (DEBUG_ENABLED)
-            Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
-
-        for (int i = 0; i < NUM_DEVICES; i++) {
-            if (strcmp(device_name, DEVICES[i]) == 0) {
-                if (state) {
-                    currentState |= 0x1 << i;
-                    if (USE_DIMMER[i])
-                        Dimmer_SetBrightness(i, value);
-                    else
-                        digitalWrite(LIGHT_PINS[i], HIGH);
-                }
-                else {
-                    currentState &= ~(0x1 << i);
-
-                    if (USE_DIMMER[i])
-                        Dimmer_TurnOff(i);
-                    else
-                        digitalWrite(LIGHT_PINS[i], LOW);
-                }
-            }
-        }
-    });
-
-    // Update Alexa status to current status
-    for (int i = 0; i < NUM_DEVICES; i++)
-        fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
-}
-
 /******************************************************/
-/***************** Loop Functions *********************/
+/******************* Loop Functions *******************/
 /******************************************************/
 
-void ProcessChanges() {
-    // Read GPIOs
-    byte changes = ReadSwitchState();
-
+byte ProcessChanges(byte changes) {
     // Process changes
     if (changes != 0) {
+        byte currentState = lastState;
+
         for (int i = 0; i < NUM_DEVICES; i++) {
             if ((changes >> i) & 0x1)
                 currentState ^= 0x1 << i;
         }
+        return currentState;
     }
-
-    // If there was any change, save it on EEPROM and update light status
-    if (lastState != currentState) {
-        nvme.SetState(currentState);
-
-        if (changes != 0) {
-            for (int i = 0; i < NUM_DEVICES; i++) {
-                bool state = (currentState >> i) & 0x1;
-                if (USE_DIMMER[i]) {
-                    Dimmer_SetState(i, state);
-                    fauxmo.setState(DEVICES[i], state, Dimmer_GetBrightness(i));
-                }
-                else {
-                    digitalWrite(LIGHT_PINS[i], state);
-                    fauxmo.setState(DEVICES[i], state, 254);
-                }
-            }
-        }
-        lastState = currentState;
-    }
+    return lastState;
 }
 
-byte ReadSwitchState() {
-    static byte lastRead = 0xFF;
-    static byte beforeLast = lastRead;
-    static byte lastChange = 0;
+void AlexaStatusChanged(byte id, bool state, byte value) {
+    if (state)
+        lastState |= (0x1 << id);
+    else
+        lastState &= ~(0x1 << id);
 
-    // Read current switch positions
-    byte currentRead = 0;
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        if (digitalRead(SWITCH_PINS[i]))
-            currentRead |= 0x1 << i;
-        else
-            currentRead &= ~(0x1 << i);
-    }
+    lights.SetState(id, state, value);
+    nvme.SetState(lastState);
 
-    // Compare corrent read with last read to check if there is any change
-    byte changes = 0;
-    if (lastRead != 0xFF && lastRead != currentRead) {
-        for (int i = 0; i < NUM_DEVICES; i++) {
-            if (((currentRead >> i) & 0x1) != ((lastRead >> i) & 0x1))
-                changes |= 0x1 << i;
-        }
-    }
-
-    // Debouncing: Compare if current read is equal to last, but different to a previous one.
-    // If different, it means that the switch remains on its position, so the switch changed
-    // and the current position is the final position
-    if (lastRead == currentRead && lastRead != beforeLast) {
-        beforeLast = lastRead;
-        changes = lastChange;
-    }
-    else {
-        lastChange = changes;
-        changes = 0;
-    }
-
-    lastRead = currentRead;
-    return changes;
+    if (DEBUG_ENABLED)
+        Serial.println((String)"[MAIN] Alexa changed: " + id + " to " + state + " with " + value);
 }

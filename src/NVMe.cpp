@@ -36,7 +36,8 @@ byte NVME::GetState() {
 }
 
 void NVME::SetState(byte state) {
-    Serial.println((String)"[NVMe] Current state: " + this->current_state + ". Addr: " + this->addr_curr);
+    if (DEBUG_ENABLED)
+        Serial.println((String)"[NVMe] Current state: " + this->current_state + ". Addr: " + this->addr_curr);
 
     if (state == this->current_state)
         return;
@@ -53,7 +54,8 @@ void NVME::SetState(byte state) {
 
     this->current_state = state;
 
-    Serial.println((String)"[NVMe] Updated state to: " + state + ". Addr: " + this->addr_curr);
+    if (DEBUG_ENABLED)
+        Serial.println((String)"[NVMe] Updated state to: " + state + ". Addr: " + this->addr_curr);
 
     return;
 }
@@ -65,7 +67,8 @@ void NVME::UpdateEEPROM(unsigned int addr, byte value) {
 }
 
 void NVME::ClearEEPROM() {
-    Serial.println("[NVMe] Cleaning EEPROM.");
+    if (DEBUG_ENABLED)
+        Serial.println("[NVMe] Cleaning EEPROM.");
     for (int i = CURR_STATE_INIT; i <= CURR_STATE_END; i++)
         UpdateEEPROM(i, 0);
     EEPROM.commit();

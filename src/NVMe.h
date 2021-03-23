@@ -1,7 +1,8 @@
 #pragma once
 
-#include <EEPROM.h>
 #include <Arduino.h>
+#include <EEPROM.h>
+#include "../Settings.h"
 
 class NVME {
     private:
