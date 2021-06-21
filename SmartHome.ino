@@ -13,6 +13,9 @@
 #include <fauxmoESP.h>    // https://github.com/vintlabs/fauxmoESP
 #include <ArduinoOTA.h>
 
+#include <IRremoteESP8266.h> // https://github.com/crankyoldgit/IRremoteESP8266
+#include <IRsend.h>          // https://github.com/crankyoldgit/IRremoteESP8266
+
 /*************************************************************************************************************************************************
    Besides the libraries already included with the Arduino Core for ESP8266, these libraries are also required to use fauxmoESP:
     => ESPAsyncTCP: https://github.com/me-no-dev/ESPAsyncTCP
@@ -20,15 +23,36 @@
     IMPORTANT: For ESP8266, before upload sketch, set LwIP to "v1.4 Higher Bandwidth" in Tools > LwIP Variant > "v1.4 Higher Bandwidth".
 **************************************************************************************************************************************************/
 
-#include "NVMe.h"
-#include "Dimmer.h"
-#include "Settings.0.h" // Choose Settings file
+#include "Settings.h" // Choose Settings file
+
+// Status for the JVC Stereo
+enum changedState {
+    none,
+    powerOn,
+    powerOff,
+    turnOn,
+    turnOff,
+    putOnAux,
+    volumeChanged
+};
+
+// Constans for JVC Stereo
+const uint16_t kJVCPower = 0xC5E8;
+const uint16_t kJVCAux = 0xC57C;
+const uint16_t kJVCVolUp = 0xC578;
+const uint16_t kJVCVolDown = 0xC5F8;
 
 #define OTA_MD5_PASSWORD "8d2a859ad6c0f1027ec838626c71da70" // Generate a new MD5 hash password on: http://www.md5.cz/
 
 fauxmoESP fauxmo;
-NVME nvme;
-byte currentState, lastState;
+
+bool currentState = false;
+byte currentVolume = 0;
+byte newVolume = 0;
+
+changedState newState = none;
+
+IRsend irsend(IR_PIN);
 
 void setup() {
     if (DEBUG_ENABLED) {
@@ -36,8 +60,11 @@ void setup() {
         delay(250);
     }
 
-    SetPins();
-    LoadCurrentState();
+    pinMode(RELAY_PIN, OUTPUT);
+    digitalWrite(RELAY_PIN, currentState);
+
+    irsend.begin();
+
     SetupWiFi();
     SetupOTA();
 
@@ -64,9 +91,9 @@ void loop() {
         }
     }
 
-    // Read GPIO every 150ms but change lights every 2 reads (for debouncing)
+    // Send commands every 200ms
     static unsigned long lastRead = millis();
-    if (millis() - lastRead > 150) {
+    if (millis() - lastRead > 200) {
         lastRead = millis();
         ProcessChanges();
     }
@@ -75,42 +102,6 @@ void loop() {
 /******************************************************/
 /***************** Setup Functions ********************/
 /******************************************************/
-
-void LoadCurrentState() {
-    lastState = currentState = nvme.GetState();
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        bool currState = (currentState >> i) & 0x1;
-
-        if (USE_DIMMER[i])
-            Dimmer_SetState(i, currState);
-        else
-            digitalWrite(LIGHT_PINS[i], currState);
-    }
-
-    if (DEBUG_ENABLED) {
-        Serial.println("\nCurrent lights state: ");
-        for (int i = 0; i < NUM_DEVICES; i++)
-            Serial.println((String)DEVICES[i] + ": " + ((currentState >> i) & 0x1));
-    }
-}
-
-void SetPins() {
-    bool setDimmer = false;
-
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        pinMode(SWITCH_PINS[i], INPUT_PULLUP);
-
-        if (!USE_DIMMER[i])
-            pinMode(LIGHT_PINS[i], OUTPUT);
-        else
-            setDimmer = true;
-    }
-
-    if (setDimmer) {
-        SetDimmer(NUM_DEVICES, USE_DIMMER, LIGHT_PINS, ZC_DIMMER_PIN);
-        Dimmer_Initialize();
-    }
-}
 
 void SetupWiFi() {
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
@@ -151,8 +142,7 @@ void fauxmoSetup() {
     fauxmo.enable(true);
 
     // Add virtual devices
-    for (int i = 0; i < NUM_DEVICES; i++)
-        fauxmo.addDevice(DEVICES[i]);
+    fauxmo.addDevice(DEVICE);
 
     fauxmo.onSetState([](unsigned char device_id, const char * device_name, bool state, unsigned char value) {
 
@@ -166,32 +156,34 @@ void fauxmoSetup() {
         // Otherwise comparing the device_name is safer.
 
         if (DEBUG_ENABLED)
-            Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+            Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d volume: %d\n", device_id, device_name, state ? "ON" : "OFF", value, MapVolume(value));
 
-        for (int i = 0; i < NUM_DEVICES; i++) {
-            if (strcmp(device_name, DEVICES[i]) == 0) {
-                if (state) {
-                    currentState |= 0x1 << i;
-                    if (USE_DIMMER[i])
-                        Dimmer_SetBrightness(i, value);
-                    else
-                        digitalWrite(LIGHT_PINS[i], HIGH);
+        if (strcmp(device_name, DEVICE) == 0) {
+            if (state) {
+                if (!currentState) { // Power On
+                    newState = powerOn;
+                    newVolume = MapVolume(value);
                 }
-                else {
-                    currentState &= ~(0x1 << i);
-
-                    if (USE_DIMMER[i])
-                        Dimmer_TurnOff(i);
-                    else
-                        digitalWrite(LIGHT_PINS[i], LOW);
+                else { // Volume changed
+                    newState = volumeChanged;
+                    newVolume = MapVolume(value);
                 }
+            }
+            else if (currentState) { // Power Off
+                newState = turnOff;
+                fauxmo.setState(DEVICE, state, 4);
+            }
+            else {
+                newState = none;
             }
         }
     });
 
-    // Update Alexa status to current status
-    for (int i = 0; i < NUM_DEVICES; i++)
-        fauxmo.setState(DEVICES[i], (currentState >> i) & 0x1, 254);
+    fauxmo.setState(DEVICE, currentState, 4); // Minimum value
+}
+
+byte MapVolume(byte volume) {
+    return map(volume, 4, 254, 1, 40);
 }
 
 /******************************************************/
@@ -199,73 +191,59 @@ void fauxmoSetup() {
 /******************************************************/
 
 void ProcessChanges() {
-    // Read GPIOs
-    byte changes = ReadSwitchState();
+    switch (newState) {
+        case powerOn: // Turn ON relay
+            digitalWrite(RELAY_PIN, true);
+            delay(1000);
+            newState = turnOn;
+            break;
 
-    // Process changes
-    if (changes != 0) {
-        for (int i = 0; i < NUM_DEVICES; i++) {
-            if ((changes >> i) & 0x1)
-                currentState ^= 0x1 << i;
-        }
-    }
+        case turnOn: // Turn ON Stereo using IR
+            irsend.sendJVC(kJVCPower, 16, 1);
+            delay(1000);
+            newState = putOnAux;
+            currentState = true;
+            break;
 
-    // If there was any change, save it on EEPROM and update light status
-    if (lastState != currentState) {
-        nvme.SetState(currentState);
+        case putOnAux: // Put on Aux mode using IR
+            irsend.sendJVC(kJVCAux, 16, 1);
+            delay(1000);
+            newState = volumeChanged;
+            break;
 
-        if (changes != 0) {
-            for (int i = 0; i < NUM_DEVICES; i++) {
-                bool state = (currentState >> i) & 0x1;
-                if (USE_DIMMER[i]) {
-                    Dimmer_SetState(i, state);
-                    fauxmo.setState(DEVICES[i], state, Dimmer_GetBrightness(i));
-                }
-                else {
-                    digitalWrite(LIGHT_PINS[i], state);
-                    fauxmo.setState(DEVICES[i], state, 254);
-                }
-            }
-        }
-        lastState = currentState;
+        case volumeChanged: // Update volume using IR
+            ChangeVolume();
+            break;
+
+        case turnOff: // Turn OFF Stereo using IR before turn OFF relay
+            irsend.sendJVC(kJVCPower, 16, 1);
+            delay(1000);
+            newState = powerOff;
+            currentVolume = 0;
+            currentState = false;
+            break;
+          
+        case powerOff: // Turn OFF relay
+            digitalWrite(RELAY_PIN, false);
+            newState = none;
+            break;
+
+        case none:
+        default:
+            break;
     }
 }
 
-byte ReadSwitchState() {
-    static byte lastRead = 0xFF;
-    static byte beforeLast = lastRead;
-    static byte lastChange = 0;
-
-    // Read current switch positions
-    byte currentRead = 0;
-    for (int i = 0; i < NUM_DEVICES; i++) {
-        if (digitalRead(SWITCH_PINS[i]))
-            currentRead |= 0x1 << i;
-        else
-            currentRead &= ~(0x1 << i);
+void ChangeVolume() {
+    if (currentVolume < newVolume) {
+        irsend.sendJVC(kJVCVolUp, 16, 1);
+        currentVolume++;
     }
-
-    // Compare corrent read with last read to check if there is any change
-    byte changes = 0;
-    if (lastRead != 0xFF && lastRead != currentRead) {
-        for (int i = 0; i < NUM_DEVICES; i++) {
-            if (((currentRead >> i) & 0x1) != ((lastRead >> i) & 0x1))
-                changes |= 0x1 << i;
-        }
-    }
-
-    // Debouncing: Compare if current read is equal to last, but different to a previous one.
-    // If different, it means that the switch remains on its position, so the switch changed
-    // and the current position is the final position
-    if (lastRead == currentRead && lastRead != beforeLast) {
-        beforeLast = lastRead;
-        changes = lastChange;
+    else if (currentVolume > newVolume) {
+        irsend.sendJVC(kJVCVolDown, 16, 1);
+        currentVolume--;
     }
     else {
-        lastChange = changes;
-        changes = 0;
+        newState = none;
     }
-
-    lastRead = currentRead;
-    return changes;
 }

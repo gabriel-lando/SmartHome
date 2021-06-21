@@ -1,15 +1,11 @@
-// MAC Address: 68:C6:3A:D6:CE:A2
+// MAC Address: B4:E6:2D:3C:20:96
 
 #pragma once
 #define DEBUG_ENABLED false
-#define NUM_DEVICES 2
 
-const char DEVICES[][25] = { "Living Room Light", "Dining Room Light" };
-const int LIGHT_PINS[] = { 4, 0 };
-const int SWITCH_PINS[] = { 14, 13 };
-
-const bool USE_DIMMER[] = { false, false };
-const int ZC_DIMMER_PIN = 0;
+const char DEVICE[25] = "Stereo";
+const int RELAY_PIN = 5;
+const int IR_PIN = 14;
 
 /*
  * ESP8366 pinout: https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
